@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
 import { getStudyAnswer, cleanQuestion } from '../services/studyService';
+import { addNote } from '../services/notesService';
+import { awardXP } from '../services/gamificationService';
+import FlashcardsModal from '../components/FlashcardsModal';
+import CodePlaygroundModal from '../components/CodePlaygroundModal';
 import {
   MessageSquareCode,
   Send,
@@ -8,12 +12,19 @@ import {
   Bot,
   User,
   Lightbulb,
-  Cpu
+  Cpu,
+  Layers,
+  Code2,
+  BookmarkPlus,
+  BookmarkCheck
 } from 'lucide-react';
 
 export default function StudyAssistantPage({ student }) {
   const [questionInput, setQuestionInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showFlashcards, setShowFlashcards] = useState(false);
+  const [showCodeSandbox, setShowCodeSandbox] = useState(false);
+  const [savedNotesMap, setSavedNotesMap] = useState({});
 
   // Chat message history initialized with a welcoming session
   const [messages, setMessages] = useState([
@@ -72,6 +83,9 @@ export default function StudyAssistantPage({ student }) {
       };
 
       setMessages((prev) => [...prev, aiMsg]);
+      if (student?.studentId) {
+        awardXP(student.studentId, 'STUDY_QUESTION');
+      }
     } catch (err) {
       console.error("Error fetching study answer:", err);
       setMessages((prev) => [
@@ -93,6 +107,19 @@ export default function StudyAssistantPage({ student }) {
     }
   };
 
+  const handleSaveToNotes = (msg) => {
+    if (!student?.studentId || savedNotesMap[msg.id]) return;
+    const content = `${msg.answer?.explanation || ''}\n\nExample:\n${msg.answer?.example || ''}\n\nKey Points:\n${(msg.answer?.keyPoints || []).map((k, i) => `${i + 1}. ${k}`).join('\n')}`;
+    addNote(student.studentId, {
+      topic: msg.answer?.topic || 'Study Note',
+      content,
+      source: 'study_assistant',
+      tags: ['Study Assistant']
+    });
+    awardXP(student.studentId, 'NOTE_SAVED');
+    setSavedNotesMap(prev => ({ ...prev, [msg.id]: true }));
+  };
+
   return (
     <div className="study-assistant-page">
       {/* Page Header */}
@@ -106,14 +133,24 @@ export default function StudyAssistantPage({ student }) {
             Ask any academic, systems, or coding question. Every answer yields an explanation, 1 code example, and 3 key points.
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-          <span className="badge badge-cyan">
-            <Cpu size={12} />
-            Bedrock Claude 3 Simulator
-          </span>
-          <span className="badge badge-indigo">
-            DynamoDB Session Logging
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setShowFlashcards(true)}
+            className="btn btn-secondary btn-sm"
+            id="btn-open-flashcards"
+          >
+            <Layers size={14} color="#38BDF8" />
+            <span>Flashcards & Quiz</span>
+          </button>
+
+          <button
+            onClick={() => setShowCodeSandbox(true)}
+            className="btn btn-secondary btn-sm"
+            id="btn-open-codesandbox"
+          >
+            <Code2 size={14} color="#818CF8" />
+            <span>Code Sandbox</span>
+          </button>
         </div>
       </div>
 
@@ -231,9 +268,31 @@ export default function StudyAssistantPage({ student }) {
                       </span>
                     )}
                   </div>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                    {msg.timestamp}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      {msg.timestamp}
+                    </span>
+                    {msg.id !== 'welcome' && !msg.error && (
+                      <button
+                        onClick={() => handleSaveToNotes(msg)}
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                        title="Save this answer to your notes"
+                      >
+                        {savedNotesMap[msg.id] ? (
+                          <>
+                            <BookmarkCheck size={12} color="#10B981" />
+                            <span style={{ color: '#10B981' }}>Saved (+8 XP)</span>
+                          </>
+                        ) : (
+                          <>
+                            <BookmarkPlus size={12} />
+                            <span>Save Note</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Section 1: Explanation */}
@@ -387,6 +446,18 @@ export default function StudyAssistantPage({ student }) {
           </button>
         </form>
       </div>
+
+      {/* Interactive Active Recall Flashcards & Quiz Modal */}
+      <FlashcardsModal
+        isOpen={showFlashcards}
+        onClose={() => setShowFlashcards(false)}
+      />
+
+      {/* Live In-Browser Code Sandbox Modal */}
+      <CodePlaygroundModal
+        isOpen={showCodeSandbox}
+        onClose={() => setShowCodeSandbox(false)}
+      />
     </div>
   );
 }

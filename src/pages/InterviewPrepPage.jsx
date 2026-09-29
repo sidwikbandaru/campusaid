@@ -1,5 +1,12 @@
-import React, { useState } from 'react';
-import { generateInterviewQuestions, getInterviewFeedback } from '../services/interviewService';
+import React, { useState, useEffect } from 'react';
+import {
+  generateInterviewQuestions,
+  getInterviewFeedback,
+  AVAILABLE_ROLES,
+  getTopicsForRole
+} from '../services/interviewService';
+import { awardXP } from '../services/gamificationService';
+import CustomSelect from '../components/CustomSelect';
 import {
   Award,
   Sparkles,
@@ -8,16 +15,44 @@ import {
   Send,
   CheckCircle2,
   AlertCircle,
-  HelpCircle,
   BookOpen,
   ArrowRight,
-  RotateCcw,
-  Zap
+  Zap,
+  Mic,
+  MicOff,
+  Printer
 } from 'lucide-react';
 
+const DIFFICULTY_OPTIONS = [
+  { value: "Junior", label: "Junior (0–2 years)" },
+  { value: "Mid-level", label: "Mid-level (2–5 years)" },
+  { value: "Senior", label: "Senior (Staff / Architect)" }
+];
+
+function getRoleFromGoal(goal = '') {
+  const lower = goal.toLowerCase();
+  if (lower.includes('fullstack') || lower.includes('full stack') || lower.includes('web')) {
+    return "Full Stack Developer";
+  }
+  if (lower.includes('data') || lower.includes('ai') || lower.includes('machine learning') || lower.includes('ml')) {
+    return "Data & AI Engineer";
+  }
+  if (lower.includes('cyber') || lower.includes('security')) {
+    return "Cybersecurity Specialist";
+  }
+  if (lower.includes('mobile')) {
+    return "Mobile App Developer";
+  }
+  return "Full Stack Developer";
+}
+
 export default function InterviewPrepPage({ student }) {
-  const [role, setRole] = useState("Cloud & DevOps Engineer");
-  const [topic, setTopic] = useState("Docker & Containerization");
+  const initialRole = getRoleFromGoal(student?.careerGoal);
+  const [role, setRole] = useState(initialRole);
+  const [topic, setTopic] = useState(() => {
+    const topics = getTopicsForRole(initialRole);
+    return topics[0] || "System Design & APIs";
+  });
   const [difficulty, setDifficulty] = useState("Mid-level");
 
   const [session, setSession] = useState(null);
@@ -25,6 +60,69 @@ export default function InterviewPrepPage({ student }) {
   const [answerInput, setAnswerInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
+
+  // Keep role synced when student careerGoal updates (only before a session starts)
+  useEffect(() => {
+    if (!session && student?.careerGoal) {
+      const matched = getRoleFromGoal(student.careerGoal);
+      setRole(matched);
+      const topics = getTopicsForRole(matched);
+      if (topics.length > 0 && !topics.includes(topic)) {
+        setTopic(topics[0]);
+      }
+    }
+  }, [student?.careerGoal]);
+
+  // Voice speech-to-text handler
+  const toggleVoiceMode = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setVoiceError('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
+      setTimeout(() => setVoiceError(''), 4000);
+      return;
+    }
+
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setVoiceError('');
+      };
+
+      recognition.onresult = (event) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        setAnswerInput((prev) => (prev ? prev + ' ' + transcript : transcript));
+      };
+
+      recognition.onerror = (event) => {
+        console.warn('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.error('Failed to start speech recognition:', err);
+      setIsListening(false);
+    }
+  };
 
   // Generate 5 questions via Bedrock service
   const handleGenerateQuestions = async () => {
@@ -70,6 +168,10 @@ export default function InterviewPrepPage({ student }) {
         ...session,
         questions: updatedQuestions
       });
+
+      if (student?.studentId) {
+        awardXP(student.studentId, feedback.score >= 9 ? 'INTERVIEW_PERFECT' : 'INTERVIEW_COMPLETE');
+      }
     } catch (err) {
       console.error("Error evaluating answer:", err);
     } finally {
@@ -110,62 +212,67 @@ export default function InterviewPrepPage({ student }) {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          {session && (
+            <button
+              onClick={() => window.print()}
+              className="btn btn-secondary btn-sm"
+              title="Print or Save as PDF"
+              id="btn-export-interview"
+            >
+              <Printer size={14} />
+              <span>Export PDF</span>
+            </button>
+          )}
           <span className="badge badge-emerald">Bedrock Rubric Evaluation</span>
         </div>
       </div>
 
       {/* Configuration & Generator Card */}
-      <div className="card" style={{ marginBottom: '2rem', padding: '1.5rem' }}>
+      <div className="card" style={{ marginBottom: '2rem', padding: '1.5rem', position: 'relative', zIndex: 30, overflow: 'visible' }}>
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
           gap: '1rem',
-          alignItems: 'flex-end'
+          alignItems: 'flex-end',
+          position: 'relative'
         }}>
           {/* Role Dropdown */}
-          <div className="form-group" style={{ marginBottom: 0 }}>
+          <div className="form-group" style={{ marginBottom: 0, position: 'relative' }}>
             <label className="form-label" htmlFor="role-select">Target Engineering Role</label>
-            <select
+            <CustomSelect
               id="role-select"
-              className="form-select"
               value={role}
-              onChange={(e) => setRole(e.target.value)}
-            >
-              <option value="Cloud & DevOps Engineer">Cloud & DevOps Engineer</option>
-              <option value="Full Stack Developer">Full Stack Developer</option>
-              <option value="Data & AI Engineer">Data & AI Engineer</option>
-            </select>
+              onChange={(newRole) => {
+                setRole(newRole);
+                const availableTopics = getTopicsForRole(newRole);
+                if (availableTopics.length > 0 && !availableTopics.includes(topic)) {
+                  setTopic(availableTopics[0]);
+                }
+              }}
+              options={AVAILABLE_ROLES.map((r) => ({ value: r, label: r }))}
+            />
           </div>
 
           {/* Difficulty Dropdown */}
-          <div className="form-group" style={{ marginBottom: 0 }}>
+          <div className="form-group" style={{ marginBottom: 0, position: 'relative' }}>
             <label className="form-label" htmlFor="difficulty-select">Seniority Difficulty</label>
-            <select
+            <CustomSelect
               id="difficulty-select"
-              className="form-select"
               value={difficulty}
-              onChange={(e) => setDifficulty(e.target.value)}
-            >
-              <option value="Junior">Junior (0-2 years)</option>
-              <option value="Mid-level">Mid-level (2-5 years)</option>
-              <option value="Senior">Senior (Staff / Architect)</option>
-            </select>
+              onChange={setDifficulty}
+              options={DIFFICULTY_OPTIONS}
+            />
           </div>
 
           {/* Topic Dropdown */}
-          <div className="form-group" style={{ marginBottom: 0 }}>
+          <div className="form-group" style={{ marginBottom: 0, position: 'relative' }}>
             <label className="form-label" htmlFor="topic-select">Technical Topic</label>
-            <select
+            <CustomSelect
               id="topic-select"
-              className="form-select"
               value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-            >
-              <option value="Docker & Containerization">Docker & Containerization</option>
-              <option value="AWS Infrastructure">AWS Infrastructure</option>
-              <option value="System Design & APIs">System Design & APIs</option>
-              <option value="CI/CD & DevOps Automation">CI/CD & DevOps Automation</option>
-            </select>
+              onChange={setTopic}
+              options={getTopicsForRole(role).map((t) => ({ value: t, label: t }))}
+            />
           </div>
 
           {/* Generate Button */}
@@ -184,7 +291,7 @@ export default function InterviewPrepPage({ student }) {
 
       {/* When no session exists yet */}
       {!session && !isGenerating && (
-        <div className="card" style={{ textAlign: 'center', padding: '3.5rem 1.5rem' }}>
+        <div className="card" style={{ textAlign: 'center', padding: '3.5rem 1.5rem', position: 'relative', zIndex: 1 }}>
           <div style={{
             width: '56px',
             height: '56px',
@@ -322,6 +429,24 @@ export default function InterviewPrepPage({ student }) {
               </label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
                 <button
+                  type="button"
+                  onClick={toggleVoiceMode}
+                  className={`btn btn-sm ${isListening ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{
+                    fontSize: '0.72rem',
+                    padding: '0.2rem 0.65rem',
+                    background: isListening ? '#EF4444' : undefined,
+                    borderColor: isListening ? '#DC2626' : undefined,
+                    boxShadow: isListening ? '0 0 12px rgba(239, 68, 68, 0.5)' : undefined
+                  }}
+                  title={isListening ? "Click to stop recording" : "Speak your answer via microphone"}
+                  id="btn-voice-answer"
+                >
+                  {isListening ? <MicOff size={13} /> : <Mic size={13} color="#A5B4FC" />}
+                  <span>{isListening ? 'Listening... (Click to stop)' : 'Voice Mode'}</span>
+                </button>
+
+                <button
                   onClick={handlePrefillAnswer}
                   className="btn btn-secondary btn-sm"
                   style={{ fontSize: '0.72rem', padding: '0.2rem 0.55rem' }}
@@ -336,6 +461,19 @@ export default function InterviewPrepPage({ student }) {
                 </span>
               </div>
             </div>
+
+            {voiceError && (
+              <div style={{
+                fontSize: '0.75rem',
+                color: '#EF4444',
+                marginBottom: '0.5rem',
+                background: 'rgba(239, 68, 68, 0.1)',
+                padding: '0.35rem 0.65rem',
+                borderRadius: '4px'
+              }}>
+                {voiceError}
+              </div>
+            )}
 
             <textarea
               id="student-answer-input"

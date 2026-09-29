@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { getSavedRoadmap, updateRoadmapSkill, generateRoadmap } from '../services/roadmapService';
+import { getSavedRoadmap, updateRoadmapSkill, generateRoadmap, ROADMAP_TRACKS } from '../services/roadmapService';
+import { awardXP } from '../services/gamificationService';
+import CustomSelect from '../components/CustomSelect';
 import {
   MapPin,
   CheckCircle2,
@@ -9,17 +11,31 @@ import {
   Layers,
   ChevronRight,
   TrendingUp,
-  Database
+  Database,
+  Rocket,
+  Printer
 } from 'lucide-react';
 
 export default function CareerRoadmapPage({ student }) {
   const [roadmap, setRoadmap] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [selectedGoal, setSelectedGoal] = useState(student?.careerGoal || "Cloud & DevOps Solutions Architect");
+  const [selectedGoal, setSelectedGoal] = useState('');
 
   useEffect(() => {
-    getSavedRoadmap(student?.studentId)
+    // Set selected goal from student profile or leave blank for fresh pick
+    const goal = student?.careerGoal || '';
+    setSelectedGoal(goal);
+
+    getSavedRoadmap(student?.studentId, goal)
+      .then((data) => {
+        // If no roadmap exists, or existing roadmap targetRole differs from student's careerGoal,
+        // automatically generate a fresh, clean 0% roadmap for their actual chosen goal
+        if (goal && (!data || (data.targetRole && data.targetRole.toLowerCase() !== goal.toLowerCase()))) {
+          return generateRoadmap(student?.year, student?.branch, goal, student?.studentId);
+        }
+        return data;
+      })
       .then((data) => {
         setRoadmap(data);
         setLoading(false);
@@ -28,7 +44,7 @@ export default function CareerRoadmapPage({ student }) {
         console.error("Error fetching roadmap:", err);
         setLoading(false);
       });
-  }, [student?.studentId]);
+  }, [student?.studentId, student?.careerGoal]);
 
   const handleToggleSkill = async (phaseIndex, itemIndex, currentDone) => {
     if (!roadmap) return;
@@ -39,6 +55,10 @@ export default function CareerRoadmapPage({ student }) {
     updatedPhases[phaseIndex].items[itemIndex].done = newDone;
     setRoadmap({ ...roadmap, phases: updatedPhases });
 
+    if (newDone && student?.studentId) {
+      awardXP(student.studentId, 'ROADMAP_CHECKOFF');
+    }
+
     try {
       await updateRoadmapSkill(student?.studentId, roadmap.roadmapId, phaseIndex, itemIndex, newDone);
     } catch (err) {
@@ -46,7 +66,8 @@ export default function CareerRoadmapPage({ student }) {
     }
   };
 
-  const handleRegenerate = async () => {
+  const handleGenerateRoadmap = async () => {
+    if (!selectedGoal) return;
     setIsRegenerating(true);
     try {
       const newRoadmap = await generateRoadmap(student?.year, student?.branch, selectedGoal, student?.studentId);
@@ -85,36 +106,53 @@ export default function CareerRoadmapPage({ student }) {
           </p>
         </div>
 
-        {/* Total Completion Progress Badge */}
-        <div style={{
-          background: 'rgba(139, 92, 246, 0.1)',
-          border: '1px solid rgba(139, 92, 246, 0.3)',
-          borderRadius: 'var(--radius-md)',
-          padding: '0.65rem 1.25rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '1rem'
-        }}>
-          <div>
-            <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: '#C4B5FD', fontWeight: 600 }}>
-              Milestone Progress
+        {/* Total Completion Progress Badge & Export */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {roadmap && (
+            <button
+              onClick={() => window.print()}
+              className="btn btn-secondary btn-sm"
+              title="Print or Save as PDF"
+              id="btn-export-roadmap"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.55rem 0.85rem' }}
+            >
+              <Printer size={15} color="var(--accent-career)" />
+              <span>Export PDF</span>
+            </button>
+          )}
+
+          {roadmap && (
+            <div style={{
+              background: 'rgba(139, 92, 246, 0.1)',
+              border: '1px solid rgba(139, 92, 246, 0.3)',
+              borderRadius: 'var(--radius-md)',
+              padding: '0.65rem 1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '1rem'
+            }}>
+              <div>
+                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: '#C4B5FD', fontWeight: 600 }}>
+                  Milestone Progress
+                </div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  {completedSkills} / {totalSkills} Skills ({overallPercent}%)
+                </div>
+              </div>
+              <div style={{ width: '60px' }}>
+                <div className="progress-bar-track" style={{ height: '8px' }}>
+                  <div
+                    className="progress-bar-fill"
+                    style={{ width: `${overallPercent}%`, background: 'var(--accent-career)' }}
+                  />
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-              {completedSkills} / {totalSkills} Skills ({overallPercent}%)
-            </div>
-          </div>
-          <div style={{ width: '60px' }}>
-            <div className="progress-bar-track" style={{ height: '8px' }}>
-              <div
-                className="progress-bar-fill"
-                style={{ width: `${overallPercent}%`, background: 'var(--accent-career)' }}
-              />
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Target Role & Regeneration Bar */}
+      {/* Target Role & Generation Bar */}
       <div className="card" style={{
         marginBottom: '2rem',
         padding: '1.25rem',
@@ -123,35 +161,85 @@ export default function CareerRoadmapPage({ student }) {
         justifyContent: 'space-between',
         flexWrap: 'wrap',
         gap: '1rem',
-        background: 'rgba(255, 255, 255, 0.02)'
+        background: 'rgba(255, 255, 255, 0.02)',
+        position: 'relative',
+        zIndex: 30,
+        overflow: 'visible'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
           <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
             Target Career Track:
           </span>
-          <select
-            className="form-select"
-            style={{ width: 'auto', minWidth: '280px', padding: '0.45rem 0.85rem' }}
-            value={selectedGoal}
-            onChange={(e) => setSelectedGoal(e.target.value)}
-            id="roadmap-goal-select"
-          >
-            <option value="Cloud & DevOps Solutions Architect">Cloud & DevOps Solutions Architect</option>
-            <option value="AI & Machine Learning Engineer">AI & Machine Learning Engineer</option>
-            <option value="Full Stack Web Developer">Full Stack Web Developer</option>
-          </select>
+          <div style={{ minWidth: '280px' }}>
+            <CustomSelect
+              id="roadmap-goal-select"
+              value={selectedGoal}
+              onChange={setSelectedGoal}
+              options={ROADMAP_TRACKS.map((t) => ({ value: t, label: t }))}
+              placeholder="Select your career track..."
+            />
+          </div>
         </div>
 
         <button
-          onClick={handleRegenerate}
-          className="btn btn-secondary btn-sm"
-          disabled={isRegenerating}
+          onClick={handleGenerateRoadmap}
+          className="btn btn-primary btn-sm"
+          disabled={isRegenerating || !selectedGoal}
           id="btn-regenerate-roadmap"
+          style={{ minWidth: '180px' }}
         >
-          <RefreshCw size={14} className={isRegenerating ? 'spin' : ''} />
-          <span>{isRegenerating ? 'Regenerating with Bedrock...' : 'Regenerate Roadmap'}</span>
+          {roadmap ? (
+            <>
+              <RefreshCw size={14} className={isRegenerating ? 'spin' : ''} />
+              <span>{isRegenerating ? 'Regenerating...' : 'Regenerate Roadmap'}</span>
+            </>
+          ) : (
+            <>
+              <Rocket size={14} />
+              <span>{isRegenerating ? 'Generating...' : 'Generate Roadmap'}</span>
+            </>
+          )}
         </button>
       </div>
+
+      {/* Empty State: No Roadmap Yet */}
+      {!loading && !roadmap && (
+        <div className="card" style={{
+          textAlign: 'center',
+          padding: '4rem 2rem',
+          border: '2px dashed var(--border-subtle)',
+          background: 'rgba(255, 255, 255, 0.01)'
+        }}>
+          <div style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '16px',
+            background: 'rgba(139, 92, 246, 0.1)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 1.5rem auto',
+            color: '#A78BFA'
+          }}>
+            <MapPin size={32} />
+          </div>
+          <h3 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: '0.75rem', color: 'var(--text-primary)' }}>
+            No Roadmap Generated Yet
+          </h3>
+          <p style={{ fontSize: '0.92rem', color: 'var(--text-secondary)', maxWidth: '480px', margin: '0 auto 1.5rem auto', lineHeight: '1.6' }}>
+            Select your target career track above and click <strong>"Generate Roadmap"</strong> to create a personalized multi-phase learning path with checkable milestones.
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            {ROADMAP_TRACKS.slice(0, 3).map((track) => (
+              <span key={track} className="badge badge-indigo" style={{ cursor: 'pointer' }} onClick={() => {
+                setSelectedGoal(track);
+              }}>
+                {track}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Phases Timeline */}
       {loading ? (
@@ -165,9 +253,9 @@ export default function CareerRoadmapPage({ student }) {
             animation: 'spin 1s linear infinite',
             margin: '0 auto 1rem auto'
           }} />
-          <p style={{ color: 'var(--text-secondary)' }}>Loading roadmap from DynamoDB...</p>
+          <p style={{ color: 'var(--text-secondary)' }}>Loading roadmap...</p>
         </div>
-      ) : (
+      ) : roadmap && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {roadmap?.phases?.map((phase, pIdx) => {
             const phaseTotal = phase.items.length;
