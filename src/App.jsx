@@ -14,6 +14,7 @@ import NotesPage from './pages/NotesPage';
 import CareerCounselorPage from './pages/CareerCounselorPage';
 import ProfileModal from './components/ProfileModal';
 import NotificationModal from './components/NotificationModal';
+import AiSettingsModal from './components/AiSettingsModal';
 import { getCurrentSession, signOutUser, getStudentProfile } from './services/studentService';
 import { recordDailyLogin } from './services/gamificationService';
 import { generateContextualNotifications } from './services/notificationService';
@@ -24,6 +25,7 @@ export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('campusaid_theme') || 'dark';
@@ -89,6 +91,7 @@ export default function App() {
         theme={theme}
         toggleTheme={toggleTheme}
         onOpenNotifications={() => setIsNotificationsOpen(true)}
+        onOpenAiSettings={() => setIsAiSettingsOpen(true)}
         onOpenDrawer={() => setIsDrawerOpen(true)}
       />
 
@@ -153,6 +156,12 @@ export default function App() {
           setActivePage(pageId);
           setIsNotificationsOpen(false);
         }}
+      />
+
+      {/* AI Settings Modal */}
+      <AiSettingsModal
+        isOpen={isAiSettingsOpen}
+        onClose={() => setIsAiSettingsOpen(false)}
       />
     </div>
   );

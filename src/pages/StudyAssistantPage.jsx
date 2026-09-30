@@ -72,7 +72,7 @@ export default function StudyAssistantPage({ student }) {
     setIsLoading(true);
 
     try {
-      const sessionRecord = await getStudyAnswer(q, student?.studentId);
+      const sessionRecord = await getStudyAnswer(q, student?.studentId, student);
 
       const aiMsg = {
         id: sessionRecord.sessionId,

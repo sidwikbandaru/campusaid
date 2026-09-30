@@ -9,6 +9,7 @@ import {
   Target,
   GraduationCap
 } from 'lucide-react';
+import { generateGeminiCareerAdvice, isGeminiActive } from '../services/geminiService';
 
 const CAREER_TOPICS = [
   "What skills should I prioritize for my first job?",
@@ -181,11 +182,26 @@ export default function CareerCounselorPage({ student }) {
     setInput('');
     setIsLoading(true);
 
-    setTimeout(() => {
-      const advice = getCareerAdvice(q);
+    try {
+      let advice = null;
+      if (isGeminiActive()) {
+        try {
+          advice = await generateGeminiCareerAdvice(q, student);
+        } catch (err) {
+          console.warn("Gemini career advice failed, falling back:", err.message);
+        }
+      }
+
+      if (!advice) {
+        advice = getCareerAdvice(q);
+      }
+
       setMessages(prev => [...prev, { id: 'ai_' + Date.now(), type: 'ai', answer: advice }]);
+    } catch (err) {
+      console.error(err);
+    } finally {
       setIsLoading(false);
-    }, 500);
+    }
   };
 
   return (

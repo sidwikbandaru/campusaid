@@ -1,10 +1,15 @@
+import {
+  generateGeminiInterviewQuestions,
+  getGeminiInterviewFeedback,
+  isGeminiActive
+} from './geminiService';
+
 /**
  * CampusAid AI - Interview Prep Service
  * 
- * Supports:
- * - Dynamic 5-question generation across all engineering roles, topics, and difficulties
- * - Rubric-based scoring (0-10) with detailed strengths, improvements, and model answers
- * - DynamoDB session record structure
+ * Powered by:
+ * - Google Gemini AI (Dynamic generation & grading)
+ * - Structured Engineering Question Banks (Instant offline fallback)
  */
 
 const QUESTION_BANK = {
@@ -269,7 +274,7 @@ export function getTopicsForRole(role) {
 }
 
 /**
- * Generate 5 mock interview questions
+ * Generate 5 mock interview questions (Uses Gemini AI if active)
  */
 export async function generateInterviewQuestions(
   role = "Cloud & DevOps Engineer",
@@ -277,82 +282,107 @@ export async function generateInterviewQuestions(
   difficulty = "Mid-level",
   studentId = "stu_c9842a1"
 ) {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      let questionsList = [];
+  let questionsList = [];
 
-      if (QUESTION_BANK[role] && QUESTION_BANK[role][topic] && QUESTION_BANK[role][topic][difficulty]) {
-        questionsList = QUESTION_BANK[role][topic][difficulty];
-      } else if (QUESTION_BANK[role] && QUESTION_BANK[role][topic]) {
-        const diffs = Object.keys(QUESTION_BANK[role][topic]);
-        questionsList = QUESTION_BANK[role][topic][diffs[0]];
-      } else {
-        questionsList = DEFAULT_QUESTIONS;
-      }
+  if (isGeminiActive()) {
+    try {
+      questionsList = await generateGeminiInterviewQuestions(role, topic, difficulty, 5);
+    } catch (err) {
+      console.warn("Gemini question gen failed, falling back to bank:", err.message);
+    }
+  }
 
-      const formattedQuestions = questionsList.map((q) => ({
-        q,
-        studentAnswer: "",
-        feedback: null,
-        score: null
-      }));
+  // Fallback to local question bank
+  if (!questionsList || questionsList.length === 0) {
+    if (QUESTION_BANK[role] && QUESTION_BANK[role][topic] && QUESTION_BANK[role][topic][difficulty]) {
+      questionsList = QUESTION_BANK[role][topic][difficulty];
+    } else if (QUESTION_BANK[role] && QUESTION_BANK[role][topic]) {
+      const diffs = Object.keys(QUESTION_BANK[role][topic]);
+      questionsList = QUESTION_BANK[role][topic][diffs[0]];
+    } else {
+      questionsList = DEFAULT_QUESTIONS;
+    }
+  }
 
-      const sessionId = "int_" + Math.random().toString(36).substring(2, 9);
+  const formattedQuestions = questionsList.map((q) => ({
+    q,
+    studentAnswer: "",
+    feedback: null,
+    score: null
+  }));
 
-      resolve({
-        studentId,
-        sessionId,
-        role,
-        topic,
-        difficulty,
-        questions: formattedQuestions
-      });
-    }, 400);
-  });
+  const sessionId = "int_" + Math.random().toString(36).substring(2, 9);
+
+  return {
+    studentId,
+    sessionId,
+    role,
+    topic,
+    difficulty,
+    questions: formattedQuestions
+  };
 }
 
 /**
- * Evaluate a student's answer and produce rubric-based feedback
+ * Evaluate a student's answer and produce rubric-based feedback (Uses Gemini AI if active)
  */
 export async function getInterviewFeedback(question, studentAnswer, role, topic, difficulty) {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      const trimmed = (studentAnswer || "").trim();
-      const wordCount = trimmed ? trimmed.split(/\s+/).length : 0;
-
-      let score = 5;
-      let whatWasGood = "";
-      let whatToImprove = "";
-      let modelAnswer = "";
-
-      if (wordCount < 10) {
-        score = 3.5;
-        whatWasGood = "You identified the core subject and attempted a concise definition.";
-        whatToImprove = "The answer is too brief for an interview. Technical interviewers look for concrete mechanisms, architecture flow, edge cases, and production trade-offs.";
-        modelAnswer = `A strong interview answer defines the core principle, walks through the operational lifecycle, and highlights production best practices such as least privilege, error handling, and monitoring.`;
-      } else if (wordCount < 40) {
-        score = 6.5;
-        whatWasGood = "Good conceptual direction. You clearly understand the primary objective and terminology.";
-        whatToImprove = "Deepen the technical explanation. Mention concrete tools, specific runtime commands or flags, failure recovery, and performance considerations.";
-        modelAnswer = `In production, this pattern separates concerns cleanly, minimizes root privilege exposure, and isolates resource consumption using standardized configuration pipelines.`;
-      } else {
-        score = 8.5;
-        whatWasGood = "Comprehensive, structured explanation. Excellent use of technical terminology, architecture considerations, and real-world system trade-offs.";
-        whatToImprove = "To reach a perfect 10/10, consider mentioning specific observability metrics (like P99 latency or Prometheus counters) and disaster recovery fallback plans.";
-        modelAnswer = `State-of-the-art implementations combine automated pipeline validation, zero-trust permission models, structured health probes, and graceful connection draining under high traffic.`;
-      }
-
-      resolve({
+  if (isGeminiActive() && studentAnswer && studentAnswer.trim().length > 3) {
+    try {
+      const geminiResult = await getGeminiInterviewFeedback(question, studentAnswer, role, topic, difficulty);
+      const score = geminiResult.score;
+      return {
         score: score,
         breakdown: {
-          technicalAccuracy: Math.min(5, (score * 0.5).toFixed(1)),
-          completeness: Math.min(3, (score * 0.3).toFixed(1)),
-          clarity: Math.min(2, (score * 0.2).toFixed(1))
+          technicalAccuracy: Math.min(5, Number((score * 0.5).toFixed(1))),
+          completeness: Math.min(3, Number((score * 0.3).toFixed(1))),
+          clarity: Math.min(2, Number((score * 0.2).toFixed(1)))
         },
-        whatWasGood,
-        whatToImprove,
-        modelAnswer
-      });
-    }, 450);
-  });
+        whatWasGood: geminiResult.whatWasGood,
+        whatToImprove: geminiResult.whatToImprove,
+        modelAnswer: geminiResult.modelAnswer,
+        poweredBy: 'Google Gemini AI'
+      };
+    } catch (err) {
+      console.warn("Gemini feedback grading failed, using local rubric:", err.message);
+    }
+  }
+
+  // Heuristic Rubric Fallback
+  const trimmed = (studentAnswer || "").trim();
+  const wordCount = trimmed ? trimmed.split(/\s+/).length : 0;
+
+  let score = 5;
+  let whatWasGood = "";
+  let whatToImprove = "";
+  let modelAnswer = "";
+
+  if (wordCount < 10) {
+    score = 3.5;
+    whatWasGood = "You identified the core subject and attempted a concise definition.";
+    whatToImprove = "The answer is too brief for an interview. Technical interviewers look for concrete mechanisms, architecture flow, edge cases, and production trade-offs.";
+    modelAnswer = `A strong interview answer defines the core principle, walks through the operational lifecycle, and highlights production best practices such as least privilege, error handling, and monitoring.`;
+  } else if (wordCount < 40) {
+    score = 6.5;
+    whatWasGood = "Good conceptual direction. You clearly understand the primary objective and terminology.";
+    whatToImprove = "Deepen the technical explanation. Mention concrete tools, specific runtime commands or flags, failure recovery, and performance considerations.";
+    modelAnswer = `In production, this pattern separates concerns cleanly, minimizes root privilege exposure, and isolates resource consumption using standardized configuration pipelines.`;
+  } else {
+    score = 8.5;
+    whatWasGood = "Comprehensive, structured explanation. Excellent use of technical terminology, architecture considerations, and real-world system trade-offs.";
+    whatToImprove = "To reach a perfect 10/10, consider mentioning specific observability metrics (like P99 latency or Prometheus counters) and disaster recovery fallback plans.";
+    modelAnswer = `State-of-the-art implementations combine automated pipeline validation, zero-trust permission models, structured health probes, and graceful connection draining under high traffic.`;
+  }
+
+  return {
+    score: score,
+    breakdown: {
+      technicalAccuracy: Math.min(5, Number((score * 0.5).toFixed(1))),
+      completeness: Math.min(3, Number((score * 0.3).toFixed(1))),
+      clarity: Math.min(2, Number((score * 0.2).toFixed(1)))
+    },
+    whatWasGood,
+    whatToImprove,
+    modelAnswer
+  };
 }

@@ -1,14 +1,12 @@
+import { generateGeminiStudyAnswer, isGeminiActive } from './geminiService';
+
 /**
  * CampusAid AI - Dynamic Academic & Technical Study Assistant Service
  * 
- * Target AWS Integration:
- * - Amazon Bedrock: Invokes Anthropic Claude 3 / Titan for real-time generative responses
- * - DynamoDB Table: CampusAid_StudySessions (Partition Key: studentId, Sort Key: sessionId)
- * 
- * Features:
- * - Conversational intent detection for natural student greetings & onboarding
- * - In-depth academic knowledge base across Core CS, Web, Cloud, Security, AI & Data
- * - Dynamic contextual response synthesizer for any arbitrary technical question
+ * Powered by:
+ * - Google Gemini AI (Real-time LLM generative responses)
+ * - Academic Heuristic Engine (Offline / instant fallback)
+ * - DynamoDB-compatible session schema
  */
 
 export const SYSTEM_PROMPT = `You are CampusAid's Study Assistant for a college student.
@@ -267,9 +265,9 @@ function synthesizeDynamicAnswer(question) {
 }
 
 /**
- * Get study answer for a student's question
+ * Get study answer for a student's question (Uses Gemini AI when active)
  */
-export async function getStudyAnswer(question, studentId = "stu_c9842a1") {
+export async function getStudyAnswer(question, studentId = "stu_c9842a1", studentProfile = {}) {
   const cleanedQuestion = cleanQuestion(question);
   const lowerQ = cleanedQuestion.toLowerCase();
 
@@ -279,7 +277,7 @@ export async function getStudyAnswer(question, studentId = "stu_c9842a1") {
   if (GREETING_REGEX.test(cleanedQuestion)) {
     matchedAnswer = {
       topic: '👋 Welcome to CampusAid Academic Copilot',
-      explanation: 'Hello! I am your 24/7 AI Academic Mentor and Study Assistant. I am here to help you master complex computer science topics, prepare for semester examinations, and sharpen your technical interview skills. Ask me anything from data structures to cloud architecture!',
+      explanation: 'Hello! I am your 24/7 AI Academic Mentor and Study Assistant powered by Google Gemini AI. I am here to help you master complex computer science topics, prepare for semester examinations, and sharpen your technical interview skills. Ask me anything from data structures to cloud architecture!',
       example: 'Try asking me: "What is recursion?", "Explain CAP theorem", "Docker containers vs Virtual Machines", or "How does React Virtual DOM work?"',
       keyPoints: [
         'Ask any theoretical or coding question to get plain-language explanations.',
@@ -292,7 +290,7 @@ export async function getStudyAnswer(question, studentId = "stu_c9842a1") {
   else if (HELP_REGEX.test(cleanedQuestion)) {
     matchedAnswer = {
       topic: '💡 CampusAid Study Assistant Guide',
-      explanation: 'I am trained on academic engineering curricula and technical interview rubrics. You can ask me to explain algorithms, clarify operating system mechanisms, compare database architectures, or debug architectural trade-offs.',
+      explanation: 'I am powered by Gemini AI and trained on academic engineering curricula. You can ask me to explain algorithms, clarify operating system mechanisms, compare database architectures, or debug architectural trade-offs.',
       example: 'Example prompts: "Explain Binary Search with time complexity", "What are ACID properties in databases?", or "How does TLS 1.3 encryption work?"',
       keyPoints: [
         'Deep coverage across Data Structures, Algorithms, OS, DBMS, Networks, Web, Cloud & Security.',
@@ -301,8 +299,17 @@ export async function getStudyAnswer(question, studentId = "stu_c9842a1") {
       ]
     };
   }
-  // 3. Match against topic catalog
-  else {
+  // 3. If Gemini is active, generate real-time AI response
+  else if (isGeminiActive()) {
+    try {
+      matchedAnswer = await generateGeminiStudyAnswer(cleanedQuestion, studentProfile);
+    } catch (err) {
+      console.warn("Gemini call failed, falling back to local catalog:", err.message);
+    }
+  }
+
+  // 4. Fallback to topic catalog if Gemini didn't answer
+  if (!matchedAnswer) {
     for (const item of TOPIC_CATALOG) {
       if (item.matcher(lowerQ)) {
         matchedAnswer = item.answer;
@@ -310,7 +317,7 @@ export async function getStudyAnswer(question, studentId = "stu_c9842a1") {
       }
     }
 
-    // 4. If no exact predefined topic matches, dynamically synthesize a targeted response
+    // 5. If no exact predefined topic matches, dynamically synthesize a response
     if (!matchedAnswer) {
       matchedAnswer = synthesizeDynamicAnswer(cleanedQuestion);
     }
@@ -318,18 +325,11 @@ export async function getStudyAnswer(question, studentId = "stu_c9842a1") {
 
   const sessionId = "sess_" + Math.random().toString(36).substring(2, 9);
 
-  const sessionRecord = {
+  return {
     studentId,
     sessionId,
     question: cleanedQuestion,
     answer: matchedAnswer,
     timestamp: new Date().toISOString()
   };
-
-  // Simulate network roundtrip latency typical of Bedrock LLM streaming
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(sessionRecord);
-    }, 380);
-  });
 }

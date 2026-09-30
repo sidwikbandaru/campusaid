@@ -6,9 +6,11 @@ import {
   Moon,
   Bell,
   LogOut,
-  Settings
+  Settings,
+  Sparkles
 } from 'lucide-react';
 import { getUnreadCount } from '../services/notificationService';
+import { isGeminiActive } from '../services/geminiService';
 
 export default function Navbar({
   setActivePage,
@@ -18,6 +20,7 @@ export default function Navbar({
   theme,
   toggleTheme,
   onOpenNotifications,
+  onOpenAiSettings,
   onOpenDrawer
 }) {
   const [unreadCount, setUnreadCount] = useState(0);
@@ -73,8 +76,31 @@ export default function Navbar({
           </div>
         </div>
 
-        {/* Right Side: Theme Switcher, Notifications, Student Profile & Logout */}
+        {/* Right Side: AI Engine, Theme Switcher, Notifications, Student Profile & Logout */}
         <div className="nav-user" style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          {/* AI Engine Settings / Gemini Trigger */}
+          <button
+            onClick={onOpenAiSettings}
+            className="btn-theme-toggle"
+            title="Configure Gemini AI Engine & API Key"
+            id="btn-ai-settings"
+            style={{
+              background: isGeminiActive() ? 'rgba(16, 185, 129, 0.15)' : 'rgba(99, 102, 241, 0.12)',
+              border: `1px solid ${isGeminiActive() ? 'rgba(16, 185, 129, 0.35)' : 'rgba(99, 102, 241, 0.3)'}`,
+              color: isGeminiActive() ? '#10B981' : 'var(--accent-learning)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              padding: '0 0.6rem',
+              fontSize: '0.76rem',
+              fontWeight: 600,
+              borderRadius: 'var(--radius-sm)'
+            }}
+          >
+            <Sparkles size={14} />
+            <span style={{ display: 'inline' }}>AI Engine</span>
+          </button>
+
           {/* Light/Dark Theme Switcher */}
           <button
             onClick={toggleTheme}
