@@ -5,41 +5,25 @@
  * 1. Academic Study Assistant (dynamic explanation, examples, key points)
  * 2. Mock Interview Questions & Rubric Answer Scoring
  * 3. Career Counselor mentorship & guidance
- * 
- * Includes graceful fallback to internal heuristic engines if API key is not configured
- * or network is offline.
  */
 
-const STORAGE_GEMINI_KEY = 'campusaid_gemini_api_key';
-
-// Default model to use (Gemini 2.5 Flash / 1.5 Flash for high-speed, cost-free generation)
-const GEMINI_MODEL = 'gemini-1.5-flash';
+// Production model: Google Gemini 3.8 Flash
+const GEMINI_MODEL = 'gemini-3.8-flash';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
- * Get active Gemini API Key from environment or localStorage
+ * Get active Gemini API Key from environment (.env or Amplify environment variables)
  */
 export function getGeminiApiKey() {
   const envKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (envKey && envKey.trim().length > 5) {
     return envKey.trim();
   }
-  return localStorage.getItem(STORAGE_GEMINI_KEY) || '';
+  return '';
 }
 
 /**
- * Save Gemini API Key to localStorage for seamless client-side use
- */
-export function setGeminiApiKey(key) {
-  if (!key) {
-    localStorage.removeItem(STORAGE_GEMINI_KEY);
-  } else {
-    localStorage.setItem(STORAGE_GEMINI_KEY, key.trim());
-  }
-}
-
-/**
- * Check if Gemini is configured and ready
+ * Check if Gemini is configured
  */
 export function isGeminiActive() {
   return Boolean(getGeminiApiKey());
@@ -51,7 +35,7 @@ export function isGeminiActive() {
 async function callGemini(prompt, systemInstruction = '') {
   const apiKey = getGeminiApiKey();
   if (!apiKey) {
-    throw new Error('NO_API_KEY');
+    throw new Error('Gemini API key is not configured in environment.');
   }
 
   const endpoint = `${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
@@ -63,13 +47,7 @@ async function callGemini(prompt, systemInstruction = '') {
           { text: prompt }
         ]
       }
-    ],
-    generationConfig: {
-      temperature: 0.7,
-      topK: 40,
-      topP: 0.95,
-      maxOutputTokens: 1024,
-    }
+    ]
   };
 
   if (systemInstruction) {
@@ -96,7 +74,7 @@ async function callGemini(prompt, systemInstruction = '') {
   const textOutput = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
   if (!textOutput) {
-    throw new Error('Empty response from Gemini API');
+    throw new Error('Empty response received from Gemini API');
   }
 
   return textOutput;
@@ -106,29 +84,28 @@ async function callGemini(prompt, systemInstruction = '') {
  * Generate Study Assistant Answer using Gemini
  */
 export async function generateGeminiStudyAnswer(question, studentProfile = {}) {
-  const systemInstruction = `You are CampusAid's Elite Academic AI Mentor for college engineering students.
-Your goal is to answer academic, algorithmic, or software engineering questions clearly, accurately, and comprehensively.
+  const systemInstruction = `You are CampusAid's Elite Academic AI Mentor. 
+Answer any user query accurately and directly.
 
-CRITICAL INSTRUCTION: You MUST return your response as a valid JSON object ONLY, with no extra text or markdown code fences, in this exact format:
+You MUST respond strictly with a valid JSON object matching this schema (do NOT wrap with markdown backticks if possible, just raw JSON):
 {
-  "topic": "Concise Formal Title of the Topic",
-  "explanation": "Clear, plain-language conceptual breakdown explaining the core mechanisms (3-5 sentences).",
-  "example": "A concrete, real-world engineering or coding scenario demonstrating how this works in production or practical code.",
+  "topic": "Concise, accurate title for this question or topic",
+  "explanation": "Clear, direct, factual, and informative answer explaining the topic in 3-5 sentences.",
+  "example": "A real-world example, practical application, or concrete illustration demonstrating this concept.",
   "keyPoints": [
-    "Key takeaway point 1 (high-yield exam/interview fact)",
-    "Key takeaway point 2 (performance, complexity, or edge case)",
-    "Key takeaway point 3 (best practice or architecture rule)"
+    "Key takeaway point 1",
+    "Key takeaway point 2",
+    "Key takeaway point 3"
   ]
 }`;
 
-  const prompt = `Student Question: "${question}"
-Student Background: Year: ${studentProfile.year || 'College'}, Major: ${studentProfile.branch || 'Computer Science'}, Career Goal: ${studentProfile.careerGoal || 'Software Engineer'}.
+  const prompt = `User Question: "${question}"
+Context: Year: ${studentProfile.year || 'College'}, Major: ${studentProfile.branch || 'Computer Science'}.
 
-Explain this topic thoroughly following the JSON schema.`;
+Provide a real, highly accurate, and helpful response.`;
 
   try {
     const rawText = await callGemini(prompt, systemInstruction);
-    // Sanitize JSON
     const cleanJsonText = rawText
       .replace(/^```json\s*/i, '')
       .replace(/^```\s*/i, '')
@@ -139,13 +116,24 @@ Explain this topic thoroughly following the JSON schema.`;
     return {
       topic: parsed.topic || question,
       explanation: parsed.explanation || rawText,
-      example: parsed.example || 'Example provided above.',
-      keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : ['Review core principles.', 'Analyze complexity trade-offs.', 'Practice hands-on implementation.'],
-      poweredBy: 'Google Gemini AI'
+      example: parsed.example || 'Relevant real-world context provided above.',
+      keyPoints: Array.isArray(parsed.keyPoints) && parsed.keyPoints.length > 0 
+        ? parsed.keyPoints 
+        : ['Factual and reliable.', 'Essential core takeaway.', 'Practical application.']
     };
   } catch (err) {
-    console.warn('[Gemini Study Service Error]', err.message);
-    throw err;
+    // If JSON parsing failed, still extract raw factual text
+    try {
+      const fallbackText = await callGemini(`Answer the following question accurately in 3 paragraphs: "${question}"`);
+      return {
+        topic: question,
+        explanation: fallbackText,
+        example: 'Direct AI Response from Google Gemini.',
+        keyPoints: ['Accurate AI answer', 'Generated dynamically', 'Real-time response']
+      };
+    } catch (innerErr) {
+      throw err;
+    }
   }
 }
 
@@ -153,10 +141,10 @@ Explain this topic thoroughly following the JSON schema.`;
  * Generate Dynamic Mock Interview Questions with Gemini
  */
 export async function generateGeminiInterviewQuestions(role, topic, difficulty, count = 5) {
-  const systemInstruction = `You are a Principal Tech Interviewer at a top technology company.
-Generate ${count} distinct, rigorous, practical interview questions tailored for the specified role, topic, and difficulty level.
+  const systemInstruction = `You are a Principal Technical Interviewer.
+Generate ${count} distinct, realistic, practical interview questions tailored for the specified role, topic, and difficulty.
 
-CRITICAL: Return ONLY a valid JSON array of strings containing the questions, like:
+Return ONLY a valid JSON array of strings containing the questions:
 [
   "Question 1...",
   "Question 2...",
@@ -165,29 +153,20 @@ CRITICAL: Return ONLY a valid JSON array of strings containing the questions, li
   "Question 5..."
 ]`;
 
-  const prompt = `Role: ${role}
-Topic: ${topic}
-Difficulty: ${difficulty}
+  const prompt = `Role: ${role}\nTopic: ${topic}\nDifficulty: ${difficulty}\n\nGenerate ${count} real interview questions.`;
 
-Generate ${count} realistic technical interview questions testing real-world engineering knowledge, architecture, code quality, and debugging.`;
+  const rawText = await callGemini(prompt, systemInstruction);
+  const cleanJsonText = rawText
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
 
-  try {
-    const rawText = await callGemini(prompt, systemInstruction);
-    const cleanJsonText = rawText
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/```\s*$/i, '')
-      .trim();
-
-    const parsed = JSON.parse(cleanJsonText);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.slice(0, count);
-    }
-    throw new Error('Invalid question format returned');
-  } catch (err) {
-    console.warn('[Gemini Interview Questions Error]', err.message);
-    throw err;
+  const parsed = JSON.parse(cleanJsonText);
+  if (Array.isArray(parsed) && parsed.length > 0) {
+    return parsed.slice(0, count);
   }
+  throw new Error('Invalid question format from AI');
 }
 
 /**
@@ -195,99 +174,84 @@ Generate ${count} realistic technical interview questions testing real-world eng
  */
 export async function getGeminiInterviewFeedback(question, studentAnswer, role, topic, difficulty) {
   const systemInstruction = `You are an expert technical interviewer evaluating a student's answer.
-Grade the candidate objectively on technical accuracy, depth, industry best practices, and communication clarity.
+Evaluate the answer accurately based on technical correctness, clarity, and depth.
 
-CRITICAL: Return ONLY a valid JSON object in this exact schema:
+Return ONLY a valid JSON object in this schema:
 {
   "score": 8.5,
-  "whatWasGood": "Specific praise on what concepts the candidate correctly identified and explained.",
-  "whatToImprove": "Constructive, actionable feedback on what technical nuances, edge cases, or production considerations were missed.",
-  "modelAnswer": "A comprehensive, high-scoring (10/10) model answer that demonstrates senior-level knowledge."
-}
+  "whatWasGood": "Accurate assessment of strengths.",
+  "whatToImprove": "Constructive suggestions on missing nuances or edge cases.",
+  "modelAnswer": "A comprehensive, high-scoring model answer."
+}`;
 
-Note: "score" must be a number between 0.0 and 10.0 (e.g. 7.5).`;
+  const prompt = `Role: ${role}
+Topic: ${topic}
+Difficulty: ${difficulty}
+Question: "${question}"
+Candidate Answer: "${studentAnswer || '(No answer)'}"
 
-  const prompt = `Interview Context:
-- Role: ${role}
-- Topic: ${topic}
-- Difficulty: ${difficulty}
-- Question: "${question}"
-- Candidate Answer: "${studentAnswer || '(No answer provided)'}"
+Evaluate the answer.`;
 
-Evaluate this answer and provide rubric scoring and model answer.`;
+  const rawText = await callGemini(prompt, systemInstruction);
+  const cleanJsonText = rawText
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
 
-  try {
-    const rawText = await callGemini(prompt, systemInstruction);
-    const cleanJsonText = rawText
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/```\s*$/i, '')
-      .trim();
-
-    const parsed = JSON.parse(cleanJsonText);
-    return {
-      score: typeof parsed.score === 'number' ? Math.min(10, Math.max(0, parsed.score)) : 7.0,
-      whatWasGood: parsed.whatWasGood || 'Good effort addressing the core concepts.',
-      whatToImprove: parsed.whatToImprove || 'Consider adding more concrete implementation details and system trade-offs.',
-      modelAnswer: parsed.modelAnswer || 'A strong answer clearly explains the mechanism, lifecycle, and operational trade-offs.',
-      poweredBy: 'Google Gemini AI'
-    };
-  } catch (err) {
-    console.warn('[Gemini Interview Grading Error]', err.message);
-    throw err;
-  }
+  const parsed = JSON.parse(cleanJsonText);
+  return {
+    score: typeof parsed.score === 'number' ? Math.min(10, Math.max(0, parsed.score)) : 7.0,
+    whatWasGood: parsed.whatWasGood || 'Good attempt addressing the question.',
+    whatToImprove: parsed.whatToImprove || 'Add more concrete technical details.',
+    modelAnswer: parsed.modelAnswer || 'A strong answer covers core principles, lifecycle, and operational trade-offs.'
+  };
 }
 
 /**
  * Generate Dynamic Career Counseling with Gemini
  */
 export async function generateGeminiCareerAdvice(query, studentProfile = {}) {
-  const systemInstruction = `You are a Senior Career Mentor & Engineering Director guiding a college student.
-Provide compassionate, highly actionable, strategic career advice.
+  const systemInstruction = `You are an experienced Tech Career Counselor and Engineering Mentor.
+Provide direct, highly practical, realistic advice for the student's question.
 
-CRITICAL: Return ONLY a valid JSON object in this exact schema:
+Return ONLY a valid JSON object in this schema:
 {
-  "title": "Inspiring & Direct Action Title",
-  "advice": "Clear, direct guidance explaining the optimal strategy, market realities, and mindset (3-5 sentences).",
+  "title": "Clear Action-Oriented Title",
+  "advice": "Direct, insightful, and practical advice answering their specific query (3-5 sentences).",
   "actionItems": [
-    "Concrete actionable step 1",
-    "Concrete actionable step 2",
-    "Concrete actionable step 3",
-    "Concrete actionable step 4"
+    "Action item 1",
+    "Action item 2",
+    "Action item 3",
+    "Action item 4"
   ],
   "resources": [
-    "Resource or tool recommendation 1",
-    "Resource or tool recommendation 2",
-    "Resource or tool recommendation 3"
+    "Resource 1",
+    "Resource 2",
+    "Resource 3"
   ]
 }`;
 
   const prompt = `Student Profile:
-- Current Major: ${studentProfile.branch || 'Computer Science'}
-- Year of Study: ${studentProfile.year || 'Undergraduate'}
-- Target Career Goal: ${studentProfile.careerGoal || 'Software Engineer'}
-- Student Question / Dilemma: "${query}"
+- Major: ${studentProfile.branch || 'Computer Science'}
+- Year: ${studentProfile.year || 'Undergraduate'}
+- Goal: ${studentProfile.careerGoal || 'Software Engineer'}
+- Question / Situation: "${query}"
 
-Provide tailored, strategic mentorship advice.`;
+Provide tailored, realistic advice.`;
 
-  try {
-    const rawText = await callGemini(prompt, systemInstruction);
-    const cleanJsonText = rawText
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/```\s*$/i, '')
-      .trim();
+  const rawText = await callGemini(prompt, systemInstruction);
+  const cleanJsonText = rawText
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
 
-    const parsed = JSON.parse(cleanJsonText);
-    return {
-      title: parsed.title || 'Personalized Career Guidance',
-      advice: parsed.advice || rawText,
-      actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : ['Build portfolio projects.', 'Practice DSA fundamentals.', 'Network on LinkedIn.'],
-      resources: Array.isArray(parsed.resources) ? parsed.resources : ['GitHub', 'LeetCode', 'Roadmap.sh'],
-      poweredBy: 'Google Gemini AI'
-    };
-  } catch (err) {
-    console.warn('[Gemini Career Advice Error]', err.message);
-    throw err;
-  }
+  const parsed = JSON.parse(cleanJsonText);
+  return {
+    title: parsed.title || 'Personalized Career Guidance',
+    advice: parsed.advice || rawText,
+    actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems : ['Plan milestones.', 'Build practical projects.', 'Network with professionals.'],
+    resources: Array.isArray(parsed.resources) ? parsed.resources : ['GitHub', 'LeetCode', 'Roadmap.sh']
+  };
 }

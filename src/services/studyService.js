@@ -273,53 +273,40 @@ export async function getStudyAnswer(question, studentId = "stu_c9842a1", studen
 
   let matchedAnswer = null;
 
-  // 1. Check for conversational greetings
-  if (GREETING_REGEX.test(cleanedQuestion)) {
-    matchedAnswer = {
-      topic: '👋 Welcome to CampusAid Academic Copilot',
-      explanation: 'Hello! I am your 24/7 AI Academic Mentor and Study Assistant powered by Google Gemini AI. I am here to help you master complex computer science topics, prepare for semester examinations, and sharpen your technical interview skills. Ask me anything from data structures to cloud architecture!',
-      example: 'Try asking me: "What is recursion?", "Explain CAP theorem", "Docker containers vs Virtual Machines", or "How does React Virtual DOM work?"',
-      keyPoints: [
-        'Ask any theoretical or coding question to get plain-language explanations.',
-        'Every answer includes a conceptual breakdown, a concrete real-world example, and 3 high-yield key points.',
-        'Sessions are recorded and linked to your career roadmap for seamless study revision.'
-      ]
-    };
-  }
-  // 2. Check for capability / help questions
-  else if (HELP_REGEX.test(cleanedQuestion)) {
-    matchedAnswer = {
-      topic: '💡 CampusAid Study Assistant Guide',
-      explanation: 'I am powered by Gemini AI and trained on academic engineering curricula. You can ask me to explain algorithms, clarify operating system mechanisms, compare database architectures, or debug architectural trade-offs.',
-      example: 'Example prompts: "Explain Binary Search with time complexity", "What are ACID properties in databases?", or "How does TLS 1.3 encryption work?"',
-      keyPoints: [
-        'Deep coverage across Data Structures, Algorithms, OS, DBMS, Networks, Web, Cloud & Security.',
-        'Generates concise summaries designed to help you ace technical exams and coding rounds.',
-        'Use the quick prompts at the top of the chat for instant high-yield revision.'
-      ]
-    };
-  }
-  // 3. If Gemini is active, generate real-time AI response
-  else if (isGeminiActive()) {
+  // 1. Try Gemini AI First for full real-time intelligence
+  if (isGeminiActive()) {
     try {
       matchedAnswer = await generateGeminiStudyAnswer(cleanedQuestion, studentProfile);
     } catch (err) {
-      console.warn("Gemini call failed, falling back to local catalog:", err.message);
+      console.warn("Gemini call error:", err.message);
     }
   }
 
-  // 4. Fallback to topic catalog if Gemini didn't answer
+  // 2. Check for conversational greetings if Gemini didn't return
   if (!matchedAnswer) {
-    for (const item of TOPIC_CATALOG) {
-      if (item.matcher(lowerQ)) {
-        matchedAnswer = item.answer;
-        break;
+    if (GREETING_REGEX.test(cleanedQuestion)) {
+      matchedAnswer = {
+        topic: '👋 Welcome to CampusAid Academic Copilot',
+        explanation: 'Hello! I am your 24/7 AI Academic Mentor and Study Assistant powered by Google Gemini. I am here to help you master complex computer science topics, prepare for semester examinations, and sharpen your technical interview skills. Ask me anything!',
+        example: 'Try asking me: "What is Python?", "Explain CAP theorem", or "Where is India located?"',
+        keyPoints: [
+          'Ask any general, theoretical, or coding question.',
+          'Every answer includes a conceptual breakdown, a concrete example, and 3 key points.',
+          'Sessions are recorded and linked to your career roadmap for revision.'
+        ]
+      };
+    } else {
+      // Check predefined catalog or dynamic fallback
+      for (const item of TOPIC_CATALOG) {
+        if (item.matcher(lowerQ)) {
+          matchedAnswer = item.answer;
+          break;
+        }
       }
-    }
 
-    // 5. If no exact predefined topic matches, dynamically synthesize a response
-    if (!matchedAnswer) {
-      matchedAnswer = synthesizeDynamicAnswer(cleanedQuestion);
+      if (!matchedAnswer) {
+        matchedAnswer = synthesizeDynamicAnswer(cleanedQuestion);
+      }
     }
   }
 
