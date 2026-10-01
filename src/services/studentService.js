@@ -50,13 +50,30 @@ export function getCurrentSession() {
   }
 }
 
-import { createFreshRoadmap, saveRoadmap } from './roadmapService';
-import { generateSkillsForGoal, saveSkills } from './skillGapService';
+import { createFreshRoadmap, saveRoadmap } from './roadmapService.js';
+import { generateSkillsForGoal, saveSkills } from './skillGapService.js';
+
+/**
+ * Cryptographic SHA-256 password hashing
+ */
+export async function hashPassword(password) {
+  if (!password) return '';
+  try {
+    const msgBuffer = new TextEncoder().encode(password + "_campusaid_salt_2026");
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return btoa(password);
+  }
+}
 
 /**
  * Register a new student
  */
 export async function signUpUser({ name, email, password, year, branch, careerGoal }) {
+  const hashedPassword = await hashPassword(password);
+
   return new Promise((resolve, reject) => {
     setTimeout(() => {
       const users = getStoredUsers();
@@ -70,7 +87,7 @@ export async function signUpUser({ name, email, password, year, branch, careerGo
         studentId: 'stu_' + Math.random().toString(36).substring(2, 9),
         name: (name || '').trim(),
         email: normalizedEmail,
-        password: password,
+        passwordHash: hashedPassword,
         year: year || '3rd Year',
         branch: branch || 'Computer Science & Engineering',
         careerGoal: careerGoal || '',
@@ -92,9 +109,12 @@ export async function signUpUser({ name, email, password, year, branch, careerGo
       localStorage.setItem(`campusaid_interviews_${newStudent.studentId}`, JSON.stringify([]));
       localStorage.setItem(`campusaid_study_history_${newStudent.studentId}`, JSON.stringify([]));
 
-      // Set active session
-      localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(newStudent));
-      resolve(newStudent);
+      // Set active session (exclude password hash)
+      const sessionUser = { ...newStudent };
+      delete sessionUser.password;
+      delete sessionUser.passwordHash;
+      localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(sessionUser));
+      resolve(sessionUser);
     }, 250);
   });
 }
@@ -103,6 +123,8 @@ export async function signUpUser({ name, email, password, year, branch, careerGo
  * Sign in an existing student
  */
 export async function signInUser(email, password) {
+  const hashedInput = await hashPassword(password);
+
   return new Promise((resolve, reject) => {
     setTimeout(() => {
       const users = getStoredUsers();
@@ -113,13 +135,20 @@ export async function signInUser(email, password) {
         return reject(new Error('No account found with this email. Please check your credentials or Sign Up.'));
       }
 
-      if (user.password !== password) {
+      const isValid = (user.passwordHash && user.passwordHash === hashedInput) || 
+                      (user.password && user.password === password) ||
+                      (user.password && user.password === hashedInput);
+
+      if (!isValid) {
         return reject(new Error('Incorrect password. Please try again.'));
       }
 
       // Set active session
-      localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(user));
-      resolve(user);
+      const sessionUser = { ...user };
+      delete sessionUser.password;
+      delete sessionUser.passwordHash;
+      localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(sessionUser));
+      resolve(sessionUser);
     }, 250);
   });
 }

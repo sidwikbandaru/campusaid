@@ -8,8 +8,7 @@ import {
   Tag,
   Clock,
   X,
-  Plus,
-  Filter
+  Plus
 } from 'lucide-react';
 import { getNotes, addNote, toggleStar, deleteNote } from '../services/notesService';
 import { awardXP } from '../services/gamificationService';
@@ -31,7 +30,7 @@ export default function NotesPage({ student }) {
 
   const handleAdd = () => {
     if (!newTopic.trim() || !newContent.trim()) return;
-    const note = addNote(student.studentId, {
+    addNote(student.studentId, {
       topic: newTopic.trim(),
       content: newContent.trim(),
       source: 'manual',

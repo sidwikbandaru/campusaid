@@ -7,15 +7,21 @@
  * 3. Career Counselor mentorship & guidance
  */
 
-// Production model: Google Gemini 3.8 Flash
-const GEMINI_MODEL = 'gemini-3.8-flash';
+// Resilient prioritized models for Google Gemini API
+const GEMINI_MODELS = [
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-flash-lite-latest',
+  'gemini-3.1-flash-lite',
+  'gemini-3.8-flash'
+];
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
  * Get active Gemini API Key from environment (.env or Amplify environment variables)
  */
 export function getGeminiApiKey() {
-  const envKey = import.meta.env.VITE_GEMINI_API_KEY;
+  const envKey = import.meta.env?.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env?.VITE_GEMINI_API_KEY : '');
   if (envKey && envKey.trim().length > 5) {
     return envKey.trim();
   }
@@ -30,15 +36,13 @@ export function isGeminiActive() {
 }
 
 /**
- * Direct call to Gemini API
+ * Direct call to Gemini API with automatic model failover & retry
  */
 async function callGemini(prompt, systemInstruction = '') {
   const apiKey = getGeminiApiKey();
   if (!apiKey) {
     throw new Error('Gemini API key is not configured in environment.');
   }
-
-  const endpoint = `${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
 
   const requestBody = {
     contents: [
@@ -56,28 +60,44 @@ async function callGemini(prompt, systemInstruction = '') {
     };
   }
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(requestBody)
-  });
+  let lastError = null;
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    const message = errorData?.error?.message || `Gemini API Error (${response.status})`;
-    throw new Error(message);
+  for (const model of GEMINI_MODELS) {
+    try {
+      const endpoint = `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const message = errorData?.error?.message || `Gemini API Error (${response.status})`;
+        console.warn(`[Gemini] Model ${model} responded with HTTP ${response.status}: ${message}. Trying next fallback...`);
+        lastError = new Error(message);
+        continue;
+      }
+
+      const data = await response.json();
+      const textOutput = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!textOutput) {
+        console.warn(`[Gemini] Model ${model} returned empty response. Trying next fallback...`);
+        lastError = new Error('Empty response received from Gemini API');
+        continue;
+      }
+
+      return textOutput;
+    } catch (err) {
+      console.warn(`[Gemini] Failed to query ${model}:`, err.message);
+      lastError = err;
+    }
   }
 
-  const data = await response.json();
-  const textOutput = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!textOutput) {
-    throw new Error('Empty response received from Gemini API');
-  }
-
-  return textOutput;
+  throw lastError || new Error('All Gemini API model attempts failed.');
 }
 
 /**
@@ -117,8 +137,8 @@ Provide a real, highly accurate, and helpful response.`;
       topic: parsed.topic || question,
       explanation: parsed.explanation || rawText,
       example: parsed.example || 'Relevant real-world context provided above.',
-      keyPoints: Array.isArray(parsed.keyPoints) && parsed.keyPoints.length > 0 
-        ? parsed.keyPoints 
+      keyPoints: Array.isArray(parsed.keyPoints) && parsed.keyPoints.length > 0
+        ? parsed.keyPoints
         : ['Factual and reliable.', 'Essential core takeaway.', 'Practical application.']
     };
   } catch (err) {

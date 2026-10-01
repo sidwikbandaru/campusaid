@@ -73,7 +73,7 @@ export default function InterviewPrepPage({ student }) {
         setTopic(topics[0]);
       }
     }
-  }, [student?.careerGoal]);
+  }, [student?.careerGoal, session, topic]);
 
   // Voice speech-to-text handler
   const toggleVoiceMode = () => {

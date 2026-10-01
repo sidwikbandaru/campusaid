@@ -5,9 +5,6 @@ import {
   Trash2,
   Clock,
   BookOpen,
-  Code2,
-  Brain,
-  FileText,
   CheckCircle2,
   X
 } from 'lucide-react';

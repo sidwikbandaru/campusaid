@@ -1,5 +1,8 @@
+import { matchAwsResume } from './awsService.js';
+
 /**
  * CampusAid AI - Resume ATS & Career Matcher Service
+ * Powered by Amazon Bedrock (Nova Micro).
  */
 
 const ROLE_KEYWORDS = {
@@ -54,6 +57,26 @@ State University of Technology (GPA: 3.8/4.0) | Expected May 2026
 `;
 
 export async function analyzeResume(resumeText, targetRole = "Cloud & DevOps Solutions Architect") {
+  // 1. Primary: Live AWS Bedrock ATS Matcher
+  try {
+    const awsRes = await matchAwsResume(resumeText, "", targetRole);
+    if (awsRes && awsRes.success && awsRes.data && awsRes.data.matchScore !== undefined) {
+      return {
+        atsScore: awsRes.data.matchScore,
+        targetRole,
+        totalKeywords: (awsRes.data.matchedSkills || []).length + (awsRes.data.missingSkills || []).length,
+        matchedKeywords: awsRes.data.matchedSkills || [],
+        missingKeywords: awsRes.data.missingSkills || [],
+        recommendations: awsRes.data.bulletImprovements || [],
+        summary: awsRes.data.summary || `Resume analyzed via Amazon Bedrock for ${targetRole}.`,
+        aiEngine: awsRes.data.aiEngine || "Amazon Bedrock (Nova Micro)"
+      };
+    }
+  } catch (err) {
+    console.warn("AWS Bedrock resume matcher fallback:", err.message);
+  }
+
+  // 2. Secondary: Heuristic Keyword Analysis
   return new Promise((resolve) => {
     setTimeout(() => {
       const text = (resumeText || "").toLowerCase();
@@ -97,6 +120,6 @@ export async function analyzeResume(resumeText, targetRole = "Cloud & DevOps Sol
         recommendations: bulletRecommendations,
         summary: `Your resume demonstrates solid foundational technical depth for ${targetRole}. Adding concrete metrics (percentages, latency cuts) and including missing high-yield keywords like ${missing.slice(0, 3).join(', ')} will push your profile past 90%+ ATS screening gates.`
       });
-    }, 450);
+    }, 300);
   });
 }

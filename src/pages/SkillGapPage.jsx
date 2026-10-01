@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getSkillGaps, updateSkillLevel, regenerateSkillsForGoal } from '../services/skillGapService';
+import { getSkillGaps, updateSkillLevel } from '../services/skillGapService';
 import { awardXP } from '../services/gamificationService';
 import {
   TrendingUp,
@@ -7,12 +7,6 @@ import {
   CheckCircle2,
   Plus,
   Minus,
-  ArrowRight,
-  ShieldCheck,
-  Target,
-  Sparkles,
-  RefreshCw,
-  Printer,
   Users
 } from 'lucide-react';
 

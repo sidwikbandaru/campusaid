@@ -2,12 +2,9 @@ import React, { useState } from 'react';
 import {
   Briefcase,
   Send,
-  Bot,
   User,
   Sparkles,
-  TrendingUp,
-  Target,
-  GraduationCap
+  Target
 } from 'lucide-react';
 import { generateGeminiCareerAdvice, isGeminiActive } from '../services/geminiService';
 
@@ -233,7 +230,7 @@ export default function CareerCounselorPage({ student }) {
 
       {/* Messages */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginBottom: '2rem' }}>
-        {messages.map((msg, idx) => {
+        {messages.map((msg) => {
           if (msg.type === 'user') {
             return (
               <div key={msg.id} style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>

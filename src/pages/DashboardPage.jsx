@@ -7,16 +7,12 @@ import CertificateModal from '../components/CertificateModal';
 import {
   Sparkles,
   ArrowRight,
-  Compass,
   MessageSquareCode,
   MapPin,
   TrendingUp,
   Award,
   BookOpen,
-  CheckCircle2,
   Clock,
-  Layers,
-  Database,
   FileText,
   Flame,
   Zap,
@@ -28,7 +24,6 @@ import {
 
 export default function DashboardPage({ student, setActivePage }) {
   const [metrics, setMetrics] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [showCertificate, setShowCertificate] = useState(false);
   const [courses, setCourses] = useState([]);
   const [gamState, setGamState] = useState(null);

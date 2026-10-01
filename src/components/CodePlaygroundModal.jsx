@@ -6,8 +6,7 @@ import {
   Terminal,
   Code2,
   CheckCircle2,
-  Copy,
-  Sparkles
+  Copy
 } from 'lucide-react';
 
 const SAMPLE_SNIPPETS = {
@@ -92,29 +91,56 @@ export default function CodePlaygroundModal({ isOpen, onClose }) {
 
   const handleRunCode = () => {
     setIsRunning(true);
-    const logs = [];
-
-    // Custom console wrapper
-    const customConsole = {
-      log: (...args) => {
-        logs.push(args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
-      },
-      warn: (...args) => {
-        logs.push("[WARN] " + args.join(' '));
-      },
-      error: (...args) => {
-        logs.push("[ERROR] " + args.join(' '));
-      }
-    };
+    // Execute inside an isolated sandboxed Web Worker (zero DOM access, no localStorage access)
+    const workerScript = `
+      self.onmessage = function(e) {
+        const logs = [];
+        const customConsole = {
+          log: (...args) => logs.push(args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ')),
+          warn: (...args) => logs.push("[WARN] " + args.join(' ')),
+          error: (...args) => logs.push("[ERROR] " + args.join(' '))
+        };
+        try {
+          const runFn = new Function('console', e.data);
+          runFn(customConsole);
+          self.postMessage({ logs: logs.length > 0 ? logs : ["Code executed with no console output."] });
+        } catch (err) {
+          self.postMessage({ logs: [...logs, "[RUNTIME ERROR]: " + err.message] });
+        }
+      };
+    `;
 
     try {
-      // Execute within custom context
-      const runFn = new Function('console', code);
-      runFn(customConsole);
-      setOutputLogs(logs.length > 0 ? logs : ["Code executed with no console output."]);
-    } catch (err) {
-      setOutputLogs([...logs, `[RUNTIME ERROR]: ${err.message}`]);
-    } finally {
+      const blob = new Blob([workerScript], { type: "application/javascript" });
+      const workerUrl = URL.createObjectURL(blob);
+      const worker = new Worker(workerUrl);
+
+      const timeoutId = setTimeout(() => {
+        worker.terminate();
+        URL.revokeObjectURL(workerUrl);
+        setOutputLogs(["[TIMEOUT ERROR]: Code execution exceeded 3 seconds."]);
+        setIsRunning(false);
+      }, 3000);
+
+      worker.onmessage = (e) => {
+        clearTimeout(timeoutId);
+        setOutputLogs(e.data.logs);
+        worker.terminate();
+        URL.revokeObjectURL(workerUrl);
+        setIsRunning(false);
+      };
+
+      worker.onerror = (err) => {
+        clearTimeout(timeoutId);
+        setOutputLogs([`[EXECUTION ERROR]: ${err.message}`]);
+        worker.terminate();
+        URL.revokeObjectURL(workerUrl);
+        setIsRunning(false);
+      };
+
+      worker.postMessage(code);
+    } catch (fallbackErr) {
+      setOutputLogs([`[SANDBOX ERROR]: ${fallbackErr.message}`]);
       setIsRunning(false);
     }
   };

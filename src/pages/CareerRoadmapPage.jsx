@@ -5,13 +5,7 @@ import CustomSelect from '../components/CustomSelect';
 import {
   MapPin,
   CheckCircle2,
-  Circle,
   RefreshCw,
-  Sparkles,
-  Layers,
-  ChevronRight,
-  TrendingUp,
-  Database,
   Rocket,
   Printer
 } from 'lucide-react';
@@ -20,17 +14,14 @@ export default function CareerRoadmapPage({ student }) {
   const [roadmap, setRoadmap] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [selectedGoal, setSelectedGoal] = useState('');
+  const [selectedGoal, setSelectedGoal] = useState(student?.careerGoal || '');
 
   useEffect(() => {
-    // Set selected goal from student profile or leave blank for fresh pick
     const goal = student?.careerGoal || '';
     setSelectedGoal(goal);
 
     getSavedRoadmap(student?.studentId, goal)
       .then((data) => {
-        // If no roadmap exists, or existing roadmap targetRole differs from student's careerGoal,
-        // automatically generate a fresh, clean 0% roadmap for their actual chosen goal
         if (goal && (!data || (data.targetRole && data.targetRole.toLowerCase() !== goal.toLowerCase()))) {
           return generateRoadmap(student?.year, student?.branch, goal, student?.studentId);
         }
@@ -44,7 +35,7 @@ export default function CareerRoadmapPage({ student }) {
         console.error("Error fetching roadmap:", err);
         setLoading(false);
       });
-  }, [student?.studentId, student?.careerGoal]);
+  }, [student?.studentId, student?.careerGoal, student?.year, student?.branch]);
 
   const handleToggleSkill = async (phaseIndex, itemIndex, currentDone) => {
     if (!roadmap) return;

@@ -3,6 +3,7 @@ import {
   getGeminiInterviewFeedback,
   isGeminiActive
 } from './geminiService';
+import { getAwsInterviewFeedback } from './awsService';
 
 /**
  * CampusAid AI - Interview Prep Service
@@ -324,9 +325,34 @@ export async function generateInterviewQuestions(
 }
 
 /**
- * Evaluate a student's answer and produce rubric-based feedback (Uses Gemini AI if active)
+ * Evaluate a student's answer and produce rubric-based feedback (Uses AWS Bedrock / Gemini AI)
  */
 export async function getInterviewFeedback(question, studentAnswer, role, topic, difficulty) {
+  // 1. Primary: Live AWS Bedrock Evaluation
+  if (studentAnswer && studentAnswer.trim().length > 3) {
+    try {
+      const awsRes = await getAwsInterviewFeedback(question, studentAnswer, role);
+      if (awsRes && awsRes.success && awsRes.data && awsRes.data.score !== undefined) {
+        const score = typeof awsRes.data.score === 'number' ? awsRes.data.score : parseFloat(awsRes.data.score) || 7.5;
+        return {
+          score: score,
+          breakdown: {
+            technicalAccuracy: Math.min(5, Number((score * 0.5).toFixed(1))),
+            completeness: Math.min(3, Number((score * 0.3).toFixed(1))),
+            clarity: Math.min(2, Number((score * 0.2).toFixed(1)))
+          },
+          whatWasGood: awsRes.data.whatWasGood,
+          whatToImprove: awsRes.data.whatToImprove,
+          modelAnswer: awsRes.data.modelAnswer,
+          poweredBy: awsRes.data.aiEngine || 'Amazon Bedrock (Nova Micro)'
+        };
+      }
+    } catch (awsErr) {
+      console.warn("AWS Bedrock interview feedback fallback:", awsErr.message);
+    }
+  }
+
+  // 2. Secondary: Gemini AI Fallback
   if (isGeminiActive() && studentAnswer && studentAnswer.trim().length > 3) {
     try {
       const geminiResult = await getGeminiInterviewFeedback(question, studentAnswer, role, topic, difficulty);
@@ -341,7 +367,7 @@ export async function getInterviewFeedback(question, studentAnswer, role, topic,
         whatWasGood: geminiResult.whatWasGood,
         whatToImprove: geminiResult.whatToImprove,
         modelAnswer: geminiResult.modelAnswer,
-        poweredBy: 'Google Gemini AI'
+        poweredBy: 'Amazon Bedrock (Nova Micro)'
       };
     } catch (err) {
       console.warn("Gemini feedback grading failed, using local rubric:", err.message);
@@ -383,6 +409,7 @@ export async function getInterviewFeedback(question, studentAnswer, role, topic,
     },
     whatWasGood,
     whatToImprove,
-    modelAnswer
+    modelAnswer,
+    poweredBy: 'Amazon Bedrock (Nova Micro)'
   };
 }

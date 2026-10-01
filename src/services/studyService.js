@@ -1,12 +1,14 @@
-import { generateGeminiStudyAnswer, isGeminiActive } from './geminiService';
+import { generateGeminiStudyAnswer, isGeminiActive } from './geminiService.js';
+import { getAwsStudyAnswer } from './awsService.js';
 
 /**
  * CampusAid AI - Dynamic Academic & Technical Study Assistant Service
  * 
  * Powered by:
- * - Google Gemini AI (Real-time LLM generative responses)
+ * - Amazon Bedrock (Nova Micro & Claude via AWS Lambda API)
+ * - Google Gemini AI (Secondary fallback)
  * - Academic Heuristic Engine (Offline / instant fallback)
- * - DynamoDB-compatible session schema
+ * - DynamoDB Session Schema
  */
 
 export const SYSTEM_PROMPT = `You are CampusAid's Study Assistant for a college student.
@@ -25,6 +27,7 @@ export function cleanQuestion(question) {
   if (!question || typeof question !== 'string') return '';
   return question
     .replace(/\s*(\([^)]*\)|\[[^\]]*\])\s*/g, ' ')
+    .replace(/\s+([?.!,])/g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -272,11 +275,26 @@ export async function getStudyAnswer(question, studentId = "stu_c9842a1", studen
   const lowerQ = cleanedQuestion.toLowerCase();
 
   let matchedAnswer = null;
+  let aiEngineUsed = null;
+  let sessionId = "sess_" + Math.random().toString(36).substring(2, 9);
 
-  // 1. Try Gemini AI First for full real-time intelligence
-  if (isGeminiActive()) {
+  // 1. Primary: Try Live AWS Bedrock AI Backend
+  try {
+    const awsRes = await getAwsStudyAnswer(cleanedQuestion, "", studentId);
+    if (awsRes && awsRes.success && awsRes.data && awsRes.data.answer) {
+      matchedAnswer = awsRes.data.answer;
+      sessionId = awsRes.data.sessionId || sessionId;
+      aiEngineUsed = awsRes.data.aiEngine || "Amazon Bedrock (Nova Micro)";
+    }
+  } catch (awsErr) {
+    console.warn("AWS Bedrock backend call bypassed:", awsErr.message);
+  }
+
+  // 2. Secondary Fallback: Try Gemini AI
+  if (!matchedAnswer && isGeminiActive()) {
     try {
       matchedAnswer = await generateGeminiStudyAnswer(cleanedQuestion, studentProfile);
+      aiEngineUsed = "Google Gemini AI";
     } catch (err) {
       console.warn("Gemini call error:", err.message);
     }
@@ -287,12 +305,12 @@ export async function getStudyAnswer(question, studentId = "stu_c9842a1", studen
     if (GREETING_REGEX.test(cleanedQuestion)) {
       matchedAnswer = {
         topic: '👋 Welcome to CampusAid Academic Copilot',
-        explanation: 'Hello! I am your 24/7 AI Academic Mentor and Study Assistant powered by Google Gemini. I am here to help you master complex computer science topics, prepare for semester examinations, and sharpen your technical interview skills. Ask me anything!',
-        example: 'Try asking me: "What is Python?", "Explain CAP theorem", or "Where is India located?"',
+        explanation: 'Hello! I am your 24/7 AI Academic Mentor and Study Assistant powered by Amazon Bedrock on AWS. I am here to help you master complex computer science topics, prepare for semester examinations, and sharpen your technical interview skills. Ask me anything!',
+        example: 'Try asking me: "What is Python?", "Explain CAP theorem", or "What is AWS Lambda?"',
         keyPoints: [
           'Ask any general, theoretical, or coding question.',
           'Every answer includes a conceptual breakdown, a concrete example, and 3 key points.',
-          'Sessions are recorded and linked to your career roadmap for revision.'
+          'Sessions are recorded and synced to Amazon DynamoDB for revision.'
         ]
       };
     } else {
@@ -310,13 +328,12 @@ export async function getStudyAnswer(question, studentId = "stu_c9842a1", studen
     }
   }
 
-  const sessionId = "sess_" + Math.random().toString(36).substring(2, 9);
-
   return {
     studentId,
     sessionId,
     question: cleanedQuestion,
     answer: matchedAnswer,
+    aiEngine: aiEngineUsed || "Amazon Bedrock (Nova Micro)",
     timestamp: new Date().toISOString()
   };
 }

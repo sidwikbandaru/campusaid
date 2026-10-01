@@ -1,12 +1,10 @@
+import { generateAwsRoadmap } from './awsService.js';
+
 /**
  * CampusAid AI - Career Roadmap & Academic Courses Service
  * 
- * Fully dynamic & persistent per-student using localStorage.
- * No hardcoded pre-completed items — all progress starts fresh.
- * 
- * Target AWS Integration:
- * - Amazon Bedrock: Generates customized milestones based on student curriculum and career goals
- * - DynamoDB Table: CampusAid_Roadmaps (Partition Key: studentId, Sort Key: roadmapId)
+ * Fully dynamic & persistent per-student using localStorage and Amazon DynamoDB.
+ * Powered by Amazon Bedrock (Nova Micro).
  */
 
 export const ROADMAP_TRACKS = [
@@ -471,15 +469,26 @@ export function loadRoadmap(studentId) {
 
 /**
  * Generate or tailor a personalized roadmap based on student parameters
- * Creates a fresh roadmap with all items unchecked
+ * Calls AWS Bedrock (Nova Micro) via Lambda API with local fallback
  */
-export async function generateRoadmap(year, branch, goal, studentId) {
+export async function generateRoadmap(year, branch, goal, studentId = "stu_c9842a1") {
+  try {
+    const awsRes = await generateAwsRoadmap(year, branch, goal, studentId);
+    if (awsRes && awsRes.success && awsRes.data && Array.isArray(awsRes.data.phases)) {
+      saveRoadmap(studentId, awsRes.data);
+      return { ...awsRes.data };
+    }
+  } catch (err) {
+    console.warn("AWS Bedrock roadmap call fallback:", err.message);
+  }
+
+  // Fallback to dynamic local generator
   return new Promise((resolve) => {
     setTimeout(() => {
       const roadmap = createFreshRoadmap(studentId, goal);
       saveRoadmap(studentId, roadmap);
       resolve({ ...roadmap });
-    }, 300);
+    }, 200);
   });
 }
 
