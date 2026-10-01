@@ -7,7 +7,9 @@ import {
   CheckCircle2,
   Plus,
   Minus,
-  Users
+  Users,
+  Target,
+  Printer
 } from 'lucide-react';
 
 export default function SkillGapPage({ student }) {
