@@ -65,6 +65,13 @@ export async function getAwsInterviewFeedback(question, answer, role) {
 }
 
 /**
+ * Live AWS Bedrock Cloud Code Execution / Simulation Engine
+ */
+export async function executeAwsCode(code, language = "python") {
+  return await callAwsApi("code/execute", { code, language });
+}
+
+/**
  * Live AWS Backend Health Check
  */
 export async function checkAwsBackendHealth() {
