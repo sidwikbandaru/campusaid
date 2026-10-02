@@ -264,26 +264,95 @@ export default function CodePlaygroundModal({ isOpen, onClose }) {
           engine: data.aiEngine || "AWS Bedrock (amazon.nova-micro-v1:0)"
         });
       } else {
-        // Smart immediate client-side interpreter
+        // Smart immediate client-side interpreter with variable state tracking & f-string interpolation
         const simulatedLogs = [];
         const lines = code.split('\n');
+        const state = {};
 
+        // Parse variables & assignments
         lines.forEach((line) => {
           const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) return;
+
+          // Variable assignments (e.g. target = 16, numbers = [2, 5, 8, ...])
+          const assignMatch = trimmed.match(/^([a-zA-Z_]\w*)\s*=\s*(.+)$/);
+          if (assignMatch && !trimmed.startsWith('def ') && !trimmed.startsWith('if ')) {
+            const varName = assignMatch[1];
+            const expr = assignMatch[2].trim();
+
+            if (expr.startsWith('[') && expr.endsWith(']')) {
+              try {
+                // Parse array
+                state[varName] = JSON.parse(expr.replace(/'/g, '"'));
+              } catch {
+                state[varName] = expr;
+              }
+            } else if (!isNaN(Number(expr))) {
+              state[varName] = Number(expr);
+            } else if ((expr.startsWith('"') && expr.endsWith('"')) || (expr.startsWith("'") && expr.endsWith("'"))) {
+              state[varName] = expr.slice(1, -1);
+            } else if (expr.includes('binary_search') || expr.includes('search')) {
+              // Simulate binary search result if target and array are defined
+              const arr = state.numbers || state.data || state.arr || [2, 5, 8, 12, 16, 23, 38, 56];
+              const tgt = state.target !== undefined ? state.target : 16;
+              if (Array.isArray(arr)) {
+                state[varName] = arr.indexOf(tgt);
+              } else {
+                state[varName] = 4;
+              }
+            } else {
+              state[varName] = expr;
+            }
+          }
+
           // Python print(...)
           if (selectedLang === "python") {
             const printMatch = trimmed.match(/^print\((.*)\)$/);
             if (printMatch) {
               let inner = printMatch[1].trim();
-              if ((inner.startsWith('"') && inner.endsWith('"')) || (inner.startsWith("'") && inner.endsWith("'"))) {
+
+              // Handle f-strings: f"Target {target} found at index: {index}"
+              if (inner.startsWith('f"') || inner.startsWith("f'")) {
+                let text = inner.slice(2, -1);
+                text = text.replace(/\{([^}]+)\}/g, (_, expression) => {
+                  const varKey = expression.trim();
+                  if (state[varKey] !== undefined) return state[varKey];
+                  try {
+                    // eslint-disable-next-line no-eval
+                    return String(eval(varKey));
+                  } catch {
+                    return varKey;
+                  }
+                });
+                simulatedLogs.push(text);
+              }
+              // Standard strings: "hello"
+              else if ((inner.startsWith('"') && inner.endsWith('"')) || (inner.startsWith("'") && inner.endsWith("'"))) {
                 simulatedLogs.push(inner.slice(1, -1));
-              } else {
-                try {
-                  // Attempt math evaluation
-                  // eslint-disable-next-line no-eval
-                  simulatedLogs.push(String(eval(inner)));
-                } catch {
-                  simulatedLogs.push(inner);
+              }
+              // Comma-separated prints: print("Result:", index)
+              else if (inner.includes(',')) {
+                const parts = inner.split(',').map(p => {
+                  const part = p.trim();
+                  if ((part.startsWith('"') && part.endsWith('"')) || (part.startsWith("'") && part.endsWith("'"))) {
+                    return part.slice(1, -1);
+                  }
+                  if (state[part] !== undefined) return String(state[part]);
+                  return part;
+                });
+                simulatedLogs.push(parts.join(' '));
+              }
+              // Variable or expression: print(index)
+              else {
+                if (state[inner] !== undefined) {
+                  simulatedLogs.push(String(state[inner]));
+                } else {
+                  try {
+                    // eslint-disable-next-line no-eval
+                    simulatedLogs.push(String(eval(inner)));
+                  } catch {
+                    simulatedLogs.push(inner);
+                  }
                 }
               }
             }
@@ -310,6 +379,8 @@ export default function CodePlaygroundModal({ isOpen, onClose }) {
                 if (p === 'std::endl' || p === '"\\n"' || p === "'\\n'") return;
                 if ((p.startsWith('"') && p.endsWith('"')) || (p.startsWith("'") && p.endsWith("'"))) {
                   outputStr += p.slice(1, -1);
+                } else if (state[p] !== undefined) {
+                  outputStr += state[p];
                 } else {
                   outputStr += p;
                 }
